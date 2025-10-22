@@ -1,339 +1,494 @@
-/* Grim Greaser: Ridgewood — Undertale-like prototype
-   Minimal Phaser 3 game with Overworld + Battle + Dialogue/Act system.
-   Controls: Arrow keys (move), Enter (interact), Z (confirm), X (cancel)
-*/
+// tiny Undertale/Deltarune inspired demo
+// single-file game logic
 
-const WIDTH = 800, HEIGHT = 600;
+(() => {
+  const canvas = document.getElementById('game-canvas');
+  const ctx = canvas.getContext('2d');
+  const startBtn = document.getElementById('start-game');
+  const resetBtn = document.getElementById('reset-game');
+  const dialogueBox = document.getElementById('dialogue-box');
+  const dialogueText = document.getElementById('dialogue-text');
+  const nextBtn = document.getElementById('next-btn');
+  const stateLabel = document.getElementById('state-label');
+  const hud = document.getElementById('hud');
+  const battleUI = document.getElementById('battle-ui');
+  const actionButtons = document.querySelectorAll('.action');
+  const enemyNameLabel = document.getElementById('enemy-name');
+  const enemyHPFill = document.getElementById('enemy-hp');
+  const playerHPFill = document.getElementById('player-hp');
+  const combatLog = document.getElementById('combat-log');
 
-class BootScene extends Phaser.Scene {
-  constructor(){ super('BootScene'); }
-  preload(){
-    // no external assets; using graphics & text
+  // --- story & data (abridged and adapted from user-provided content) ---
+  const story = {
+    intro: [
+      "THE CHRONICLES OF GRIM GREASER",
+      "In Ridgewood, Grim Greaser lives for mischief, snacks, and shortcuts.",
+      "Today something strange stirs in the school...",
+      "Zoey, Grim's sister, keeps them grounded. Zack keeps the snacks.",
+      "Grim senses a presence: Mia — someone obsessed with him."
+    ],
+    hallway: [
+      "* You walk the halls of Ridgewood High.",
+      "* Zoey is organizing papers; Zack is probably near snacks.",
+      "Mia: Grim! I made you lunch!",
+      "A dark energy flickers... something appears from the shadows!"
+    ],
+    victoryEnd: [
+      "You stood up to the shadows.",
+      "The road ahead remains uncertain... TO BE CONTINUED"
+    ]
+  };
+
+  const encounters = [
+    {
+      id: 'library-ghost',
+      name: 'Library Ghost',
+      maxHp: 50,
+      hp: 50,
+      attack: 10,
+      defense: 3,
+      exp: 25,
+      dialog: ["A ghost drifts from the dusty shelves!"]
+    },
+    {
+      id: 'shadow-wraith',
+      name: 'Shadow Wraith',
+      maxHp: 80,
+      hp: 80,
+      attack: 14,
+      defense: 6,
+      exp: 40,
+      dialog: ["A writhing shadow stalks you!", "It feeds on fear..."]
+    },
+    {
+      id: 'mia-boss',
+      name: 'Mia',
+      maxHp: 140,
+      hp: 140,
+      attack: 18,
+      defense: 8,
+      exp: 80,
+      dialog: [
+        "Mia: You can't avoid me forever, Grim!",
+        "Mia: We are meant to be together."
+      ]
+    }
+  ];
+
+  // player state
+  const player = {
+    maxHp: 100,
+    hp: 100,
+    level: 1,
+    exp: 0
+  };
+
+  // game state machine
+  let state = 'menu'; // menu | intro | exploration | battleStart | battle | victory | ending | gameover
+  let currentDialogue = [];
+  let dialogueIndex = 0;
+  let currentEncounterIndex = 0;
+  let enemy = null;
+  let battlePhase = 'menu'; // menu | attackpattern | resolving
+  let lastTime = 0;
+
+  // small "soul" dodge area for attack phase
+  const soul = { x: canvas.width / 2, y: canvas.height - 140, size: 18, speed: 4, hp: player.hp };
+  const keys = {};
+
+  function setState(newState) {
+    state = newState;
+    stateLabel.textContent = state.toUpperCase();
+    // UI toggles
+    if (state === 'menu') {
+      dialogueBox.classList.add('hidden');
+      battleUI.classList.add('hidden');
+    } else if (state === 'intro' || state === 'exploration' || state === 'victory' || state === 'ending' || state === 'gameover') {
+      dialogueBox.classList.remove('hidden');
+      battleUI.classList.add('hidden');
+    } else if (state === 'battleStart') {
+      // show enemy dialog before battle
+      dialogueBox.classList.remove('hidden');
+      battleUI.classList.add('hidden');
+    } else if (state === 'battle') {
+      dialogueBox.classList.add('hidden');
+      battleUI.classList.remove('hidden');
+    }
   }
-  create(){
-    this.scene.start('OverworldScene');
-  }
-}
 
-class OverworldScene extends Phaser.Scene {
-  constructor(){ super('OverworldScene'); }
-  create(){
-    // world background
-    this.cameras.main.setBackgroundColor('#0b1020');
-
-    // simple tile-ish ground
-    const g = this.add.graphics();
-    g.fillStyle(0x112233,1);
-    g.fillRect(0,0,WIDTH,HEIGHT);
-
-    // streets / park rectangle
-    g.fillStyle(0x163a2b,1);
-    g.fillRect(40,120,720,380);
-
-    // create player (Grim)
-    this.player = this.add.rectangle(120,200,28,36,0x2ea3ff).setOrigin(0.5);
-    this.player.name = 'Grim';
-
-    // NPCs from story (simple)
-    this.npcs = this.add.group();
-    const makeNPC=(x,y,color,name,dialog)=>{
-      const r = this.add.rectangle(x,y,28,36,color).setOrigin(0.5);
-      r.name = name;
-      r.dialog = dialog || ["..."];
-      this.npcs.add(r);
-      const label = this.add.text(x-40,y+26,name,{fontSize:12, color:'#fff'}).setOrigin(0,0);
-      return r;
-    };
-
-    this.zoey = makeNPC(300,200,0xff88cc,'Zoey',[
-      "Zoey: Stay sharp, Grim.",
-      "Zoey: I'm studying clues about the missing parents."
-    ]);
-    this.zack = makeNPC(420,320,0x9999ff,'Zack',[
-      "Zack: Got snacks? Let's go cause trouble!",
-      "Zack: Epic trick incoming!"
-    ]);
-    this.mia = makeNPC(600,220,0xff3366,'Mia',[
-      "Mia: You belong with me, Grim.",
-      "Mia: I only want to keep you safe."
-    ]);
-    this.bandit = makeNPC(200,360,0x999999,'Bandit',[
-      "Bandit: (woof)"
-    ]);
-
-    // text prompt
-    this.hint = this.add.text(12,HEIGHT-28,"Use arrow keys to move, Enter to interact",{fontSize:14,color:'#ffffff'});
-
-    // keyboard
-    this.cursors = this.input.keyboard.createCursorKeys();
-    this.keyEnter = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
-
-    // simple movement variables
-    this.speed = 160;
-
-    // collision bounds
-    this.physics = this.physics || this.scene;
-    this.playerData = {x:this.player.x, y:this.player.y};
+  function startIntro() {
+    currentDialogue = [...story.intro];
+    dialogueIndex = 0;
+    setState('intro');
+    updateDialogue();
   }
 
-  update(time, delta){
-    // movement
-    let vx=0, vy=0;
-    if (this.cursors.left.isDown) vx=-1;
-    else if (this.cursors.right.isDown) vx=1;
-    if (this.cursors.up.isDown) vy=-1;
-    else if (this.cursors.down.isDown) vy=1;
-    const norm = vx||vy ? Math.sqrt(vx*vx+vy*vy) : 1;
-    this.player.x += (vx? vx/norm:0)*this.speed*(delta/1000);
-    this.player.y += (vy? vy/norm:0)*this.speed*(delta/1000);
-
-    // interact
-    if (Phaser.Input.Keyboard.JustDown(this.keyEnter)){
-      const near = this.npcs.getChildren().find(n=>{
-        return Phaser.Math.Distance.Between(this.player.x,this.player.y,n.x,n.y) < 60;
-      });
-      if (near){
-        // interactions: if Mia and hostile, start battle; else show dialogue
-        if (near.name === 'Mia' || near.name === 'Bandit' && Math.random()<0.15){
-          // possibility to trigger a battle with a Shadow Wraith if interaction with Mia is ominous
-          this.scene.pause();
-          this.scene.launch('BattleScene',{enemyKey:'shadow', from:'overworld', caller:near.name});
+  function updateDialogue() {
+    if (dialogueIndex < currentDialogue.length) {
+      dialogueText.textContent = currentDialogue[dialogueIndex];
+    } else {
+      // advance from dialogues to next logical state
+      if (state === 'intro') {
+        // move to exploration/hallway story then battle
+        currentDialogue = [...story.hallway];
+        dialogueIndex = 0;
+        setState('exploration');
+        updateDialogue();
+      } else if (state === 'exploration') {
+        // start first battle
+        prepareEncounter(currentEncounterIndex);
+      } else if (state === 'battleStart') {
+        // enter active battle
+        setState('battle');
+        startBattleLoop();
+      } else if (state === 'victory') {
+        // either next encounter or ending
+        currentEncounterIndex++;
+        if (currentEncounterIndex < encounters.length) {
+          // short exploration text then next fight
+          currentDialogue = [`After a brief break, another threat looms...`];
+          dialogueIndex = 0;
+          setState('exploration');
+          updateDialogue();
         } else {
-          this.showDialogue(near.dialog);
+          // ending
+          currentDialogue = [...story.victoryEnd];
+          dialogueIndex = 0;
+          setState('ending');
+          updateDialogue();
         }
+      } else if (state === 'ending') {
+        // back to menu
+        setState('menu');
+      } else if (state === 'gameover') {
+        // give player a chance to reset
+        setState('menu');
       }
     }
   }
 
-  showDialogue(lines){
-    // simple modal
-    const w=600,h=140;
-    const box = this.add.rectangle(WIDTH/2,HEIGHT-110,w,h,0x08111a,0.95).setStrokeStyle(2,0x3aa6ff);
-    const txt = this.add.text(WIDTH/2 - w/2 + 12, HEIGHT-160, lines[0], {fontSize:16, color:'#fff', wordWrap:{width:w-24}});
-    let idx=0;
-    const keyZ = this.input.keyboard.addKey('Z');
-    const advance = ()=>{
-      idx++;
-      if (idx >= lines.length){ box.destroy(); txt.destroy(); keyZ.destroy(); }
-      else txt.setText(lines[idx]);
-    };
-    keyZ.on('down', advance);
-  }
-}
+  nextBtn.addEventListener('click', () => {
+    dialogueIndex++;
+    updateDialogue();
+  });
 
-class BattleScene extends Phaser.Scene {
-  constructor(){ super('BattleScene'); }
-  init(data){
-    this.enemyKey = data.enemyKey || 'shadow';
-    this.origin = data.from || 'overworld';
-    this.caller = data.caller || '';
+  startBtn.addEventListener('click', () => {
+    resetAll();
+    startIntro();
+  });
+
+  resetBtn.addEventListener('click', () => {
+    resetAll();
+    setState('menu');
+  });
+
+  function prepareEncounter(idx) {
+    enemy = JSON.parse(JSON.stringify(encounters[idx]));
+    currentDialogue = enemy.dialog.slice();
+    dialogueIndex = 0;
+    setState('battleStart');
+    updateDialogue();
+    // update enemy UI when battle begins
+    enemyHPFill.style.width = `${(enemy.hp / enemy.maxHp) * 100}%`;
+    playerHPFill.style.width = `${(player.hp / player.maxHp) * 100}%`;
+    enemyNameLabel.textContent = enemy.name.toUpperCase();
   }
-  create(){
-    // dark overlay
-    this.cameras.main.setBackgroundColor('#05040f');
-    // enemy definitions
-    this.enemies = {
-      shadow: {
-        name: 'Shadow Wraith',
-        hp: 30,
-        maxHp: 30,
-        color: 0x660000,
-        acts: {
-          'Talk': {mood: -2, text: "The wraith shivers at your words."},
-          'Joke': {mood: -1, text: "A hollow chuckle echoes."},
-          'Show Locket': {mood: +3, text: "The wraith recognises something... it's calmer."}
-        }
+
+  // action handlers
+  actionButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.dataset.action;
+      if (state !== 'battle' || battlePhase !== 'menu') return;
+      performAction(act);
+    });
+  });
+
+  function performAction(action) {
+    appendCombatLog(`You chose: ${action.toUpperCase()}`);
+    if (action === 'fight') {
+      // instant damage + minor enemy reaction
+      const dmg = Math.max(3, Math.floor(Math.random() * 18) + 6 - enemy.defense);
+      enemy.hp = Math.max(0, enemy.hp - dmg);
+      appendCombatLog(`You strike! ${enemy.name} takes ${dmg} damage.`);
+      updateEnemyBar();
+      if (enemy.hp <= 0) return onVictory();
+      // small delay then enemy attack pattern starts
+      setTimeout(() => {
+        startEnemyAttack();
+      }, 600);
+    } else if (action === 'act') {
+      // a simple ACT check that can pacify or reduce enemy damage
+      const outcomes = [
+        `You told a silly joke. ${enemy.name} hesitates.`,
+        `You compliment ${enemy.name}. It seems confused.`,
+        `You adjust your green sweatband. It doesn't care.`
+      ];
+      appendCombatLog(outcomes[Math.floor(Math.random() * outcomes.length)]);
+      // start enemy attack after ACT
+      setTimeout(startEnemyAttack, 600);
+    } else if (action === 'item') {
+      // a small heal item chance
+      const heal = 20;
+      player.hp = Math.min(player.maxHp, player.hp + heal);
+      appendCombatLog(`You ate a snack: +${heal} HP`);
+      updatePlayerBar();
+      setTimeout(startEnemyAttack, 600);
+    } else if (action === 'mercy') {
+      if (enemy.hp < enemy.maxHp * 0.25) {
+        appendCombatLog(`${enemy.name} accepts mercy and retreats!`);
+        onVictory();
+      } else {
+        appendCombatLog(`${enemy.name} refuses mercy!`);
+        setTimeout(startEnemyAttack, 600);
       }
-    };
-    this.enemy = JSON.parse(JSON.stringify(this.enemies[this.enemyKey]));
-
-    // UI panels
-    this.txtEnemy = this.add.text(WIDTH/2,120,this.enemy.name,{fontSize:28,color:'#ffdddd'}).setOrigin(0.5);
-    this.enemyBar = this.add.rectangle(WIDTH/2,160,300,12,0xff4444).setOrigin(0.5);
-
-    // player "soul" and bullet arena
-    this.arena = this.add.rectangle(WIDTH/2,HEIGHT/2 - 20,460,220,0x081018).setStrokeStyle(2,0xffffff);
-    // player's heart
-    this.heart = this.add.circle(WIDTH/2, HEIGHT/2 + 40, 8, 0xffffff);
-
-    // menu UI
-    this.menuChoices = ['Fight','Act','Item','Mercy'];
-    this.menuIndex = 0;
-    this.menuText = this.add.text(40,HEIGHT-160,'',{fontSize:20,color:'#fff'});
-    this.updateMenu();
-
-    // simple status
-    this.enemyMood = 0; // higher -> more pacified
-
-    // keyboard
-    this.left = this.input.keyboard.addKey('LEFT');
-    this.right = this.input.keyboard.addKey('RIGHT');
-    this.z = this.input.keyboard.addKey('Z');
-
-    // state
-    this.inFightMinigame = false;
-    this.projectiles = [];
-
-    // instructions
-    this.instr = this.add.text(40,HEIGHT-40,"Use ← → to choose, Z to confirm",{fontSize:14,color:'#aabbcc'});
-
-    // capture escape: if over world
-    this.sceneLauncher = this.scene.get(this.origin);
-  }
-
-  updateMenu(){
-    let str = '';
-    for (let i=0;i<this.menuChoices.length;i++){
-      str += (i===this.menuIndex? '▶ ':'  ') + this.menuChoices[i] + '\n';
     }
-    this.menuText.setText(str);
   }
 
-  update(time,dt){
-    if (this.inFightMinigame){
-      // mini fight: spawn red projectiles intermittently
-      if (Math.random() < 0.02) this.spawnProjectile();
-      this.projectiles.forEach(p=>{
-        p.y += p.speed;
-        p.x += Math.sin((time+p.offset)*0.01)*p.wobble;
-        if (Phaser.Math.Distance.Between(p.x,p.y,this.heart.x,this.heart.y) < 12){
-          // hit
-          this.cameras.main.shake(80,0.01);
-          // small penalty: reduce player 'stability' -> immediate result as losing HP or just reduce enemy mood
-          this.enemy.moodDamage = (this.enemy.moodDamage||0)+1;
-          p.dead = true;
-        }
-        if (p.y > HEIGHT+50) p.dead = true;
+  function onVictory() {
+    appendCombatLog(`${enemy.name} defeated! You gain ${enemy.exp} EXP.`);
+    player.exp += enemy.exp;
+    player.hp = Math.min(player.maxHp, player.hp + 12); // small heal on victory
+    updatePlayerBar();
+    setState('victory');
+    currentDialogue = [enemy.name + " fades away..."];
+    dialogueIndex = 0;
+    dialogueBox.classList.remove('hidden');
+    battleUI.classList.add('hidden');
+  }
+
+  function updateEnemyBar() {
+    enemyHPFill.style.width = `${(enemy.hp / enemy.maxHp) * 100}%`;
+  }
+  function updatePlayerBar() {
+    playerHPFill.style.width = `${(player.hp / player.maxHp) * 100}%`;
+  }
+
+  function appendCombatLog(text) {
+    combatLog.classList.remove('hidden');
+    const p = document.createElement('div');
+    p.textContent = `• ${text}`;
+    p.style.fontFamily = '"Press Start 2P", monospace';
+    p.style.fontSize = '12px';
+    combatLog.appendChild(p);
+    combatLog.scrollTop = combatLog.scrollHeight;
+  }
+
+  // --- enemy attack patterns and simple bullet dodge ---
+  let bullets = [];
+  function startEnemyAttack() {
+    if (!enemy) return;
+    battlePhase = 'attackpattern';
+    // spawn bullets for a short homebrew "bullet hell" section
+    bullets = [];
+    const patternCount = Math.min(12, Math.floor(enemy.attack / 2) + 4);
+    for (let i = 0; i < patternCount; i++) {
+      const angle = (i / patternCount) * Math.PI * 2;
+      const speed = 1.2 + Math.random() * 2 + (enemy.attack / 20);
+      bullets.push({
+        x: Math.random() * canvas.width,
+        y: -10 - Math.random() * 80,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed + 0.5,
+        r: 8 + Math.random() * 6,
+        color: '#ff4d4d'
       });
-      this.projectiles = this.projectiles.filter(p=>!p.dead);
-      return;
     }
 
-    // menu navigation
-    if (Phaser.Input.Keyboard.JustDown(this.left)) { this.menuIndex = (this.menuIndex+this.menuChoices.length-1)%this.menuChoices.length; this.updateMenu(); }
-    if (Phaser.Input.Keyboard.JustDown(this.right)) { this.menuIndex = (this.menuIndex+1)%this.menuChoices.length; this.updateMenu(); }
+    // let the attack run for a short while, then resolve
+    setTimeout(() => {
+      // enemy deals damage based on collisions during attack
+      const hits = checkSoulCollisions();
+      const dmg = Math.min(player.hp, Math.max(1, Math.floor((enemy.attack / 6) * hits)));
+      if (dmg > 0) {
+        player.hp = Math.max(0, player.hp - dmg);
+        appendCombatLog(`${enemy.name} deals ${dmg} damage!`);
+        updatePlayerBar();
+      } else {
+        appendCombatLog(`You dodged the attack!`);
+      }
 
-    if (Phaser.Input.Keyboard.JustDown(this.z)){
-      const choice = this.menuChoices[this.menuIndex];
-      if (choice === 'Fight') { this.startFightMinigame(); }
-      else if (choice === 'Act'){ this.openActMenu(); }
-      else if (choice === 'Item'){ this.showMessage("You rummage... nothing helpful."); }
-      else if (choice === 'Mercy'){ this.attemptMercy(); }
-    }
+      bullets = [];
+      battlePhase = 'menu';
 
-    // update HP bar width
-    const ratio = Math.max(0, this.enemy.hp / this.enemy.maxHp);
-    this.enemyBar.width = 300 * ratio;
+      if (player.hp <= 0) {
+        setTimeout(() => {
+          setState('gameover');
+          currentDialogue = [
+            "You fell down...",
+            "But something feels off...",
+            "This isn't the end."
+          ];
+          dialogueIndex = 0;
+          dialogueBox.classList.remove('hidden');
+          battleUI.classList.add('hidden');
+        }, 600);
+      }
+    }, 1600 + Math.random() * 800);
   }
 
-  startFightMinigame(){
-    this.inFightMinigame = true;
-    this.showMessage("You attack! Dodge to land the hit.");
-    // spawn a directed volley for a short time, after 1500ms stop and register hit
-    this.time.delayedCall(2200, ()=>{
-      this.inFightMinigame = false;
-      // calculate damage: fewer hits taken -> more damage
-      const misses = this.enemy.moodDamage || 0;
-      const dmg = Math.max(2, 8 - misses);
-      this.enemy.hp -= dmg;
-      this.enemy.moodDamage = 0;
-      this.showMessage("You dealt "+dmg+" damage!");
-      if (this.enemy.hp <= 0){ this.onEnemyDefeated(false); }
+  function checkSoulCollisions() {
+    // count how many bullets intersected the soul while the attack was active
+    // simpler: count distance overlaps during the attack phase (approx)
+    let hits = 0;
+    // calculate collisions based on current bullets positions
+    bullets.forEach(b => {
+      const dx = b.x - soul.x;
+      const dy = b.y - soul.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < b.r + soul.size) hits++;
     });
+    // return hits clamped
+    return Math.min(6, hits);
   }
 
-  spawnProjectile(){
-    const x = Phaser.Math.Between(WIDTH/2 - 200, WIDTH/2 + 200);
-    const p = {x:x, y: -20, speed: Phaser.Math.Between(1,3), wobble:Phaser.Math.Between(10,40), offset:Phaser.Math.Between(0,4000)};
-    p.rect = this.add.circle(p.x,p.y,6,0xff4444);
-    p.dead = false;
-    this.projectiles.push(p);
-    // cleanup graphics each tick: move rect with p
-    this.time.addEvent({delay:16, loop:true, callback:()=>{
-      p.rect.x = p.x; p.rect.y = p.y; if (p.dead){ p.rect.destroy(); } }, callbackScope:this});
+  // --- rendering loop ---
+  function drawBackground() {
+    // simple starry background with gradient
+    const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    g.addColorStop(0, '#000011');
+    g.addColorStop(1, '#0b0b12');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
-  openActMenu(){
-    // simple dialog showing Acts
-    const acts = Object.keys(this.enemy.acts);
-    let idx=0;
-    const width=420, height=120;
-    const box = this.add.rectangle(WIDTH/2,HEIGHT/2+160,width,height,0x081018,0.98).setStrokeStyle(2,0x66ffcc);
-    const text = this.add.text(WIDTH/2 - width/2 + 10, HEIGHT/2+110, acts.map((a,i)=> ((i===idx)?'▶ ':'  ')+a).join('\n'),{fontSize:16,color:'#fff'});
-    const left = this.input.keyboard.addKey('LEFT'), right = this.input.keyboard.addKey('RIGHT'), z=this.input.keyboard.addKey('Z'), x=this.input.keyboard.addKey('X');
-    const update = ()=>{
-      text.setText(acts.map((a,i)=> ((i===idx)?'▶ ':'  ')+a).join('\n'));
-    };
-    const cleanup = ()=>{
-      box.destroy(); text.destroy(); left.destroy(); right.destroy(); z.destroy(); x.destroy();
-    };
-    const onConfirm = ()=>{
-      const act = acts[idx];
-      const effect = this.enemy.acts[act];
-      this.enemyMood += (effect.mood||0);
-      this.showMessage(effect.text);
-      cleanup();
-    };
-    left.on('down',()=>{ idx=(idx+acts.length-1)%acts.length; update(); });
-    right.on('down',()=>{ idx=(idx+1)%acts.length; update(); });
-    z.on('down', onConfirm);
-    x.on('down', ()=>{ cleanup(); });
-  }
+  function drawScene(time) {
+    const dt = (time - lastTime) / 1000;
+    lastTime = time;
 
-  attemptMercy(){
-    // simple mercy logic: if mood high enough -> spare
-    if (this.enemyMood >= 3 || this.enemy.hp <= 4){
-      this.showMessage("You mercied the enemy!");
-      this.onEnemyDefeated(true);
+    // Clear
+    drawBackground();
+
+    // If in battle and pattern active, draw enemy and bullets and soul
+    if (state === 'battle') {
+      // enemy portrait (emoji)
+      ctx.fillStyle = '#fff';
+      ctx.font = '48px serif';
+      ctx.fillText('👻', canvas.width / 2 - 24, 120);
+
+      // bullets
+      bullets.forEach(b => {
+        b.x += b.vx;
+        b.y += b.vy;
+        // wrap a little or fade out
+        if (b.y > canvas.height + 80 || b.x < -80 || b.x > canvas.width + 80) {
+          b.x = Math.random() * canvas.width;
+          b.y = -20;
+        }
+        ctx.beginPath();
+        ctx.fillStyle = b.color;
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // draw player's soul (a small heart)
+      ctx.save();
+      ctx.translate(soul.x, soul.y);
+      ctx.fillStyle = '#ff6699';
+      drawHeart(ctx, 0, 0, soul.size);
+      ctx.restore();
     } else {
-      this.showMessage("The enemy isn't ready to be spared.");
-      // enemy might retaliate: small damage to player or increase hostility
-      this.enemy.hp = Math.min(this.enemy.maxHp, this.enemy.hp + 2);
-      this.enemyMood = Math.max(0, this.enemyMood - 1);
+      // exploration visuals
+      ctx.fillStyle = '#fff';
+      ctx.font = '20px "Press Start 2P", monospace';
+      if (state === 'intro' || state === 'exploration' || state === 'battleStart' || state === 'victory') {
+        ctx.fillText('— Story & Exploration —', 20, 40);
+      } else {
+        ctx.fillText('Press Start to begin your adventure.', 20, 40);
+      }
     }
+
+    // draw a simple HUD indicator for bullets count while active
+    if (bullets.length > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.font = '14px monospace';
+      ctx.fillText(`Incoming: ${bullets.length}`, 12, canvas.height - 12);
+    }
+
+    requestAnimationFrame(drawScene);
   }
 
-  onEnemyDefeated(spared){
-    if (spared){
-      this.showMessage(`${this.enemy.name} spared. Peace achieved.`, ()=> this.endBattle(true));
+  function drawHeart(ctx, x, y, size) {
+    // draw a simple heart using arcs/triangle
+    const s = size;
+    ctx.beginPath();
+    ctx.moveTo(x, y + s / 4);
+    ctx.bezierCurveTo(x, y - s / 2, x - s, y - s / 2, x - s, y + s / 4);
+    ctx.bezierCurveTo(x - s, y + s, x, y + s * 1.4, x, y + s * 1.8);
+    ctx.bezierCurveTo(x, y + s * 1.4, x + s, y + s, x + s, y + s / 4);
+    ctx.bezierCurveTo(x + s, y - s / 2, x, y - s / 2, x, y + s / 4);
+    ctx.fill();
+  }
+
+  // soul movement with arrow keys
+  window.addEventListener('keydown', (e) => {
+    keys[e.key.toLowerCase()] = true;
+    // allow left/right/up/down
+    if (['arrowleft','arrowright','arrowup','arrowdown'].includes(e.key.toLowerCase())) e.preventDefault();
+  });
+  window.addEventListener('keyup', (e) => {
+    keys[e.key.toLowerCase()] = false;
+  });
+
+  function updateSoulPosition() {
+    if (state === 'battle' && battlePhase === 'attackpattern') {
+      if (keys['arrowleft'] || keys['a']) soul.x -= soul.speed * 2;
+      if (keys['arrowright'] || keys['d']) soul.x += soul.speed * 2;
+      if (keys['arrowup'] || keys['w']) soul.y -= soul.speed * 2;
+      if (keys['arrowdown'] || keys['s']) soul.y += soul.speed * 2;
+
+      // clamp area to a "box" near bottom
+      const left = 60, right = canvas.width - 60;
+      const top = canvas.height - 220, bottom = canvas.height - 60;
+      soul.x = Math.max(left, Math.min(right, soul.x));
+      soul.y = Math.max(top, Math.min(bottom, soul.y));
     } else {
-      this.showMessage(`${this.enemy.name} defeated.`, ()=> this.endBattle(false));
+      // move soul back to default position for visual
+      soul.x += (canvas.width / 2 - soul.x) * 0.08;
+      soul.y += ((canvas.height - 140) - soul.y) * 0.08;
     }
+    requestAnimationFrame(updateSoulPosition);
   }
 
-  endBattle(spared){
-    // clean up and return to overworld
-    this.time.delayedCall(400, ()=>{
-      this.scene.stop();
-      this.scene.resume('OverworldScene');
-      // show small message in overworld
-      const ow = this.scene.get('OverworldScene');
-      ow.showDialogue([spared? "You spared the enemy." : "You defeated the enemy."]);
-    });
+  function startBattleLoop() {
+    // reset soul pos
+    soul.x = canvas.width / 2;
+    soul.y = canvas.height - 140;
+    battlePhase = 'menu';
+    bullets = [];
+    appendCombatLog(`Battle vs ${enemy.name} starts!`);
+    updateEnemyBar();
+    updatePlayerBar();
   }
 
-  showMessage(msg, cb){
-    if (this._modal) this._modal.destroy();
-    const w=680,h=80;
-    this._modal = this.add.container(WIDTH/2, HEIGHT-60);
-    const bg = this.add.rectangle(0,0,w,h,0x07121a,0.96).setStrokeStyle(2,0x66ffcc);
-    const txt = this.add.text(-w/2+12,-12, msg, {fontSize:16, color:'#fff', wordWrap:{width:w-24}});
-    this._modal.add([bg, txt]);
-    if (this._clearTimer) this._clearTimer.remove();
-    this._clearTimer = this.time.delayedCall(1600, ()=>{ this._modal.destroy(); this._modal = null; if (cb) cb(); });
+  function resetAll() {
+    player.hp = player.maxHp;
+    player.exp = 0;
+    currentEncounterIndex = 0;
+    enemy = null;
+    bullets = [];
+    combatLog.innerHTML = '';
+    currentDialogue = [];
+    dialogueIndex = 0;
+    setState('menu');
   }
-}
 
-const config = {
-  type: Phaser.AUTO,
-  width: WIDTH,
-  height: HEIGHT,
-  parent: 'game-container',
-  scene: [BootScene, OverworldScene, BattleScene],
-  backgroundColor: '#0b1020'
-};
+  // initialization
+  setState('menu');
+  lastTime = performance.now();
+  requestAnimationFrame(drawScene);
+  requestAnimationFrame(updateSoulPosition);
 
-const game = new Phaser.Game(config);
+  // small helpful hints
+  appendCombatLog('Welcome to the small demo — press START to play.');
+  appendCombatLog('During enemy attacks, use arrow keys or WASD to dodge the red bullets.');
 
-// Optional: expose game for console tinkering
-window._game = game;
+  // expose for debug in console (optional)
+  window._grimGame = {
+    startIntro,
+    prepareEncounter,
+    resetAll,
+    state,
+    player,
+    encounters
+  };
+})();
