@@ -1,5 +1,5 @@
-// tiny Undertale/Deltarune inspired demo
-// single-file game logic
+// tiny Undertale/Deltarune inspired demo with sound support
+// single-file game logic (updated to load and play sounds from snd/)
 
 (() => {
   const canvas = document.getElementById('game-canvas');
@@ -17,6 +17,105 @@
   const enemyHPFill = document.getElementById('enemy-hp');
   const playerHPFill = document.getElementById('player-hp');
   const combatLog = document.getElementById('combat-log');
+
+  // --- sound setup ---
+  const audioMap = {
+    // UI / SFX
+    'ui-click': 'snd/mo_pop.ogg',
+    'start': 'snd/mail_jingle_alt.ogg',
+    'fight-hit': 'snd/mo_pop.ogg',
+    'act': 'snd/pinkgoo_move.ogg',
+    'item': 'snd/clover_jump_dunes.ogg',
+    'mercy-success': 'snd/mail_jingle_alt.ogg',
+    'mercy-fail': 'snd/pops_deflate.ogg',
+    'enemy-attack': 'snd/wild_east_shocking_sound.ogg',
+    'player-hurt': 'snd/wood_zap.ogg',
+    'victory': 'snd/microsprings_froggits.ogg',
+    'gameover': 'snd/wood_flowey.ogg',
+    'doorclose': 'snd/doorclose.ogg',
+
+    // background / ambiances (looped)
+    'bg-exploration': 'snd/snowdin_bridge.ogg',
+    'bg-battle': 'snd/sandstorm.ogg'
+  };
+
+  // baseAudio holds non-cloned audio (use for looped music)
+  const baseAudio = {};
+
+  // quick clone-and-play helper for short SFX (allows overlapping)
+  function playSfx(name, opts = {}) {
+    const url = audioMap[name];
+    if (!url) return null;
+    try {
+      // If we have a base non-looping audio stored, clone it
+      const base = baseAudio[name];
+      if (base && !base.loop) {
+        const node = base.cloneNode();
+        node.volume = (opts.volume ?? 0.9);
+        node.currentTime = 0;
+        node.play().catch(() => {});
+        return node;
+      }
+      // Fallback: create a new Audio each time
+      const a = new Audio(url);
+      a.preload = 'auto';
+      a.volume = (opts.volume ?? 0.9);
+      a.play().catch(() => {});
+      return a;
+    } catch (e) {
+      // ignore play errors (autoplay policies, etc.)
+      return null;
+    }
+  }
+
+  // play looped background music (pause any other looped tracks)
+  let currentMusic = null;
+  function playMusic(name, opts = {}) {
+    const url = audioMap[name];
+    if (!url) return;
+
+    // if the requested music is already playing, do nothing
+    if (currentMusic && currentMusic._name === name && !currentMusic.paused) return;
+
+    // stop previous
+    if (currentMusic) {
+      try { currentMusic.pause(); } catch (e) {}
+    }
+
+    // use a persistent baseAudio entry for music
+    let a = baseAudio[name];
+    if (!a) {
+      a = new Audio(url);
+      a.loop = true;
+      a.preload = 'auto';
+      a.volume = (opts.volume ?? 0.55);
+      baseAudio[name] = a;
+    }
+    a._name = name;
+    a.currentTime = opts.startTime || 0;
+    a.play().catch(() => {});
+    currentMusic = a;
+  }
+
+  function stopMusic() {
+    if (currentMusic) {
+      try { currentMusic.pause(); } catch (e) {}
+      currentMusic = null;
+    }
+  }
+
+  // preload short SFX into baseAudio for faster cloneNode usage
+  Object.keys(audioMap).forEach(k => {
+    // only preload non-music short SFX into baseAudio
+    if (![ 'bg-exploration', 'bg-battle' ].includes(k)) {
+      try {
+        const a = new Audio(audioMap[k]);
+        a.preload = 'auto';
+        a.loop = false;
+        baseAudio[k] = a;
+      } catch (e) { /* ignore */ }
+    }
+  });
 
   // --- story & data (abridged and adapted from user-provided content) ---
   const story = {
@@ -103,9 +202,14 @@
     if (state === 'menu') {
       dialogueBox.classList.add('hidden');
       battleUI.classList.add('hidden');
+      stopMusic();
     } else if (state === 'intro' || state === 'exploration' || state === 'victory' || state === 'ending' || state === 'gameover') {
       dialogueBox.classList.remove('hidden');
       battleUI.classList.add('hidden');
+      // exploration music whenever we enter exploration/intro/ending
+      if (state === 'exploration' || state === 'intro' || state === 'ending') {
+        playMusic('bg-exploration', { volume: 0.45 });
+      }
     } else if (state === 'battleStart') {
       // show enemy dialog before battle
       dialogueBox.classList.remove('hidden');
@@ -113,6 +217,7 @@
     } else if (state === 'battle') {
       dialogueBox.classList.add('hidden');
       battleUI.classList.remove('hidden');
+      playMusic('bg-battle', { volume: 0.45 });
     }
   }
 
@@ -121,6 +226,7 @@
     dialogueIndex = 0;
     setState('intro');
     updateDialogue();
+    playSfx('start', { volume: 0.9 });
   }
 
   function updateDialogue() {
@@ -168,16 +274,19 @@
   }
 
   nextBtn.addEventListener('click', () => {
+    playSfx('ui-click', { volume: 0.7 });
     dialogueIndex++;
     updateDialogue();
   });
 
   startBtn.addEventListener('click', () => {
+    playSfx('ui-click', { volume: 0.7 });
     resetAll();
     startIntro();
   });
 
   resetBtn.addEventListener('click', () => {
+    playSfx('doorclose', { volume: 0.7 });
     resetAll();
     setState('menu');
   });
@@ -199,6 +308,7 @@
     btn.addEventListener('click', () => {
       const act = btn.dataset.action;
       if (state !== 'battle' || battlePhase !== 'menu') return;
+      playSfx('ui-click', { volume: 0.75 });
       performAction(act);
     });
   });
@@ -206,6 +316,7 @@
   function performAction(action) {
     appendCombatLog(`You chose: ${action.toUpperCase()}`);
     if (action === 'fight') {
+      playSfx('fight-hit', { volume: 0.85 });
       // instant damage + minor enemy reaction
       const dmg = Math.max(3, Math.floor(Math.random() * 18) + 6 - enemy.defense);
       enemy.hp = Math.max(0, enemy.hp - dmg);
@@ -217,7 +328,7 @@
         startEnemyAttack();
       }, 600);
     } else if (action === 'act') {
-      // a simple ACT check that can pacify or reduce enemy damage
+      playSfx('act', { volume: 0.8 });
       const outcomes = [
         `You told a silly joke. ${enemy.name} hesitates.`,
         `You compliment ${enemy.name}. It seems confused.`,
@@ -227,6 +338,7 @@
       // start enemy attack after ACT
       setTimeout(startEnemyAttack, 600);
     } else if (action === 'item') {
+      playSfx('item', { volume: 0.9 });
       // a small heal item chance
       const heal = 20;
       player.hp = Math.min(player.maxHp, player.hp + heal);
@@ -234,10 +346,13 @@
       updatePlayerBar();
       setTimeout(startEnemyAttack, 600);
     } else if (action === 'mercy') {
+      playSfx('ui-click', { volume: 0.7 });
       if (enemy.hp < enemy.maxHp * 0.25) {
+        playSfx('mercy-success', { volume: 0.9 });
         appendCombatLog(`${enemy.name} accepts mercy and retreats!`);
         onVictory();
       } else {
+        playSfx('mercy-fail', { volume: 0.9 });
         appendCombatLog(`${enemy.name} refuses mercy!`);
         setTimeout(startEnemyAttack, 600);
       }
@@ -245,12 +360,13 @@
   }
 
   function onVictory() {
+    playSfx('victory', { volume: 0.9 });
     appendCombatLog(`${enemy.name} defeated! You gain ${enemy.exp} EXP.`);
     player.exp += enemy.exp;
     player.hp = Math.min(player.maxHp, player.hp + 12); // small heal on victory
     updatePlayerBar();
     setState('victory');
-    currentDialogue = [enemy.name + " fades away..."];
+    currentDialogue = [enemy.name + " fades away..."];  
     dialogueIndex = 0;
     dialogueBox.classList.remove('hidden');
     battleUI.classList.add('hidden');
@@ -278,6 +394,7 @@
   function startEnemyAttack() {
     if (!enemy) return;
     battlePhase = 'attackpattern';
+    playSfx('enemy-attack', { volume: 0.9 });
     // spawn bullets for a short homebrew "bullet hell" section
     bullets = [];
     const patternCount = Math.min(12, Math.floor(enemy.attack / 2) + 4);
@@ -301,9 +418,11 @@
       const dmg = Math.min(player.hp, Math.max(1, Math.floor((enemy.attack / 6) * hits)));
       if (dmg > 0) {
         player.hp = Math.max(0, player.hp - dmg);
+        playSfx('player-hurt', { volume: 0.9 });
         appendCombatLog(`${enemy.name} deals ${dmg} damage!`);
         updatePlayerBar();
       } else {
+        playSfx('ui-click', { volume: 0.85 });
         appendCombatLog(`You dodged the attack!`);
       }
 
@@ -313,6 +432,7 @@
       if (player.hp <= 0) {
         setTimeout(() => {
           setState('gameover');
+          playSfx('gameover', { volume: 0.9 });
           currentDialogue = [
             "You fell down...",
             "But something feels off...",
@@ -328,22 +448,18 @@
 
   function checkSoulCollisions() {
     // count how many bullets intersected the soul while the attack was active
-    // simpler: count distance overlaps during the attack phase (approx)
     let hits = 0;
-    // calculate collisions based on current bullets positions
     bullets.forEach(b => {
       const dx = b.x - soul.x;
       const dy = b.y - soul.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < b.r + soul.size) hits++;
     });
-    // return hits clamped
     return Math.min(6, hits);
   }
 
   // --- rendering loop ---
   function drawBackground() {
-    // simple starry background with gradient
     const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
     g.addColorStop(0, '#000011');
     g.addColorStop(1, '#0b0b12');
@@ -369,7 +485,6 @@
       bullets.forEach(b => {
         b.x += b.vx;
         b.y += b.vy;
-        // wrap a little or fade out
         if (b.y > canvas.height + 80 || b.x < -80 || b.x > canvas.width + 80) {
           b.x = Math.random() * canvas.width;
           b.y = -20;
@@ -387,7 +502,6 @@
       drawHeart(ctx, 0, 0, soul.size);
       ctx.restore();
     } else {
-      // exploration visuals
       ctx.fillStyle = '#fff';
       ctx.font = '20px "Press Start 2P", monospace';
       if (state === 'intro' || state === 'exploration' || state === 'battleStart' || state === 'victory') {
@@ -397,7 +511,6 @@
       }
     }
 
-    // draw a simple HUD indicator for bullets count while active
     if (bullets.length > 0) {
       ctx.fillStyle = 'rgba(255,255,255,0.6)';
       ctx.font = '14px monospace';
@@ -408,7 +521,6 @@
   }
 
   function drawHeart(ctx, x, y, size) {
-    // draw a simple heart using arcs/triangle
     const s = size;
     ctx.beginPath();
     ctx.moveTo(x, y + s / 4);
@@ -422,7 +534,6 @@
   // soul movement with arrow keys
   window.addEventListener('keydown', (e) => {
     keys[e.key.toLowerCase()] = true;
-    // allow left/right/up/down
     if (['arrowleft','arrowright','arrowup','arrowdown'].includes(e.key.toLowerCase())) e.preventDefault();
   });
   window.addEventListener('keyup', (e) => {
@@ -436,13 +547,11 @@
       if (keys['arrowup'] || keys['w']) soul.y -= soul.speed * 2;
       if (keys['arrowdown'] || keys['s']) soul.y += soul.speed * 2;
 
-      // clamp area to a "box" near bottom
       const left = 60, right = canvas.width - 60;
       const top = canvas.height - 220, bottom = canvas.height - 60;
       soul.x = Math.max(left, Math.min(right, soul.x));
       soul.y = Math.max(top, Math.min(bottom, soul.y));
     } else {
-      // move soul back to default position for visual
       soul.x += (canvas.width / 2 - soul.x) * 0.08;
       soul.y += ((canvas.height - 140) - soul.y) * 0.08;
     }
@@ -450,7 +559,6 @@
   }
 
   function startBattleLoop() {
-    // reset soul pos
     soul.x = canvas.width / 2;
     soul.y = canvas.height - 140;
     battlePhase = 'menu';
@@ -470,6 +578,7 @@
     currentDialogue = [];
     dialogueIndex = 0;
     setState('menu');
+    stopMusic();
   }
 
   // initialization
