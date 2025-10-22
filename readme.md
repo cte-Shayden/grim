@@ -1,33 +1,34 @@
-# Grim Greaser: Ridgewood — Undertale-like Prototype
+# The Chronicles of Grim Greaser — Mini Undertale-like Demo
 
-This is a small browser prototype inspired by "The Chronicles of Grim Greaser". It's Undertale‑like in that you explore, talk, choose actions (Act/Fight/Mercy/Item), and can resolve encounters without violence.
+This repository contains a tiny browser demo inspired by Undertale / Deltarune using the story characters and scenes you provided (Grim, Zoey, Zack, Mia, Bandit, and several encounters).
+
+What is included
+- index.html — main HTML file with a canvas and UI.
+- style.css — basic styling and pixel-inspired UI.
+- game.js — core game logic: simple state machine (menu → intro/story → exploration → battle), small bullet-dodge "attack" phase, actions: FIGHT / ACT / ITEM / MERCY, and basic dialogue.
+- README.md — this file.
 
 How to run
-- Save the repository files (index.html, style.css, game.js).
-- Open `index.html` in a modern browser (Chrome/Firefox).
-- Controls:
-  - Overworld: Arrow keys to move, Enter to interact / talk.
-  - Battle: Left / Right to change selection, Z to confirm, X to cancel.
-  - In Fight: Arrow keys (or mouse) to dodge, stay inside the white "heart" and avoid red projectiles.
+1. Open `index.html` in a modern browser (Chrome, Firefox, Edge).
+2. Click "Start" to play.
+3. Use the UI buttons to proceed through the story and to choose actions in battle.
+4. During enemy attack phases, use arrow keys or WASD to move the "soul" (heart) and dodge projectiles.
 
-Design notes
-- Scenes: `OverworldScene` (walk + talk), `BattleScene` (turn-based with a dodge minigame).
-- Characters are represented with simple colored rectangles so you can prototype quickly.
-- Dialogue uses short lines pulled from story themes. Extend `characters` and `acts` in `game.js`.
-- Enemy behavior is configurable: add enemies to the enemy list with HP, mood rules, sprites, and Act reactions.
+Notes and limitations
+- This is a lightweight, single-file demo, intentionally small to be easy to extend.
+- The game mechanics are inspired by Undertale/Deltarune but simplified (turn-based actions + small dodge segment).
+- No external assets are required. Everything is drawn on a canvas and uses a small HTML UI.
 
-Next steps (ideas)
-- Replace placeholder shapes with pixel art/sprites for Grim, Zoey, Zack, Mia, Bandit, enemies.
-- Add a small map or tilemap, save/load state.
-- Expand Act list (e.g., "Joke", "Remember Parents", "Show Locket") and hook them to story-specific branches.
-- Add music and SFX (careful of licensing).
-- Implement more battle types (shielded enemies, multi-phase bosses).
-- Add accessibility features and keyboard remapping.
+Ideas for improvements (if you want to expand)
+- Add real sprites / pixel art for Grim, Mia, and enemies.
+- Make richer ACT interactions with unique outcomes per enemy.
+- Add an inventory, shop, or leveling system.
+- Add sound effects and music (WebAudio / <audio>).
+- Replace the demo 'bullets' with more interesting attack patterns per enemy.
 
 If you'd like, I can:
-- Add art assets (sprite sheets) and pack them,
-- Extend the story branches (e.g., Mia obsession twists into a longer arc),
-- Make a simple level editor for dialog + enemy config,
-- Create a GitHub branch and push these files (if you give me the repo push permission).
+- Turn this into a multi-scene web build with better graphics.
+- Add save/load using localStorage.
+- Implement an expanded dialogue engine using the full story text you provided.
 
-Enjoy! — your prototyping assistant
+Enjoy — and tell me how you'd like to expand or tweak the demo!
