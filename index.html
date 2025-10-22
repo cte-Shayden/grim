@@ -2,19 +2,73 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Grim Greaser: Ridgewood</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="style.css">
-  <!-- Phaser 3 CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+  <title>The Chronicles of Grim Greaser — Tiny Undertale-like Demo</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="ui">
-    <h1>Grim Greaser: Ridgewood (Prototype)</h1>
-    <p class="hint">Arrow keys to move. Enter to interact. In battle use ← → to pick choices and Z to confirm.</p>
-  </div>
+  <div id="app">
+    <header class="title">
+      <h1>THE CHRONICLES OF GRIM GREASER</h1>
+      <p class="sub">A small Undertale / Deltarune inspired browser demo — Grim, Zoey, Zack & Mia</p>
+    </header>
 
-  <div id="game-container"></div>
+    <main>
+      <div id="game-root">
+        <canvas id="game-canvas" width="960" height="540"></canvas>
+
+        <div id="ui">
+          <div id="dialogue-box" class="panel hidden">
+            <p id="dialogue-text"></p>
+            <div id="dialogue-controls">
+              <button id="next-btn" class="btn">▶ Next</button>
+            </div>
+          </div>
+
+          <div id="battle-ui" class="panel hidden">
+            <div id="battle-info">
+              <div class="entity">
+                <div class="name" id="enemy-name">ENEMY</div>
+                <div class="hpbar">
+                  <div id="enemy-hp" class="hp-fill"></div>
+                </div>
+              </div>
+
+              <div class="entity">
+                <div class="name">GRIM</div>
+                <div class="hpbar">
+                  <div id="player-hp" class="hp-fill"></div>
+                </div>
+              </div>
+            </div>
+
+            <div id="action-menu" class="menu grid-2">
+              <button class="btn action" data-action="fight">FIGHT</button>
+              <button class="btn action" data-action="act">ACT</button>
+              <button class="btn action" data-action="item">ITEM</button>
+              <button class="btn action" data-action="mercy">MERCY</button>
+            </div>
+
+            <div id="combat-log" class="panel mini hidden"></div>
+          </div>
+
+          <div id="hud" class="panel">
+            <div id="state-label">MENU</div>
+            <div id="controls-hint">Use mouse / tap to interact — Arrow keys to dodge during attacks</div>
+          </div>
+        </div>
+      </div>
+
+      <section id="credits">
+        <small>Based on the story by Shayden Sloan — adapted by this tiny demo</small>
+      </section>
+    </main>
+
+    <footer>
+      <button id="start-game" class="btn primary">Start</button>
+      <button id="reset-game" class="btn">Reset</button>
+    </footer>
+  </div>
 
   <script src="game.js"></script>
 </body>
